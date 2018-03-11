@@ -1,0 +1,446 @@
+* 12/23/17
+<mson_> Hi. I'm trying to make the push on line 29 here work: https://pastebin.com/5Aeez2jN
+
+<mson_> Basically the issue is I'm not sure how to push an element resulting from
+peeking an iterator into a vector using generic types. I can "fix" the current error
+by dereferencing next, but then I get all these borrow issues, and cloning doesn't
+seem to help.
+
+<Arnavion> You can't peek() a &Peekable since peek() takes &mut self.
+Also peek() stores the peeked value internally and only returns a reference to it,
+so it returns a &T by design
+
+<Arnavion> And since it only has space for one peeked
+element internally you can't make it give you more than one reference at the same
+time
+
+<Arnavion> If you want to store k peeked values from an iterator your would
+need to write your own iterator wrapper
+
+<mson_> Arnavion: Hm. So maybe using an iterator
+in the first place is wrong, huh. I just want some collection that's reasonably generic
+and that I can slice in some manner. I might try changing all these iterators to
+vectors. thanks
+
+<mson_> What is a usize; why can't I add it to a u32;
+and what are the correct conversions to add these two types? 
+
+<yarn> you can do usize
++ u32 as usize
+
+<Mutabah> mson_: usize is a pointer-sized integer
+
+<Mutabah> mson_:
+You can't add it to a u32 because they're differnet types
+
+<Mutabah> mson_: and as
+yarn said, you can do `u32_val as usize` to conver that value to a `usize`
+
+<insaneinside>
+mson_: this is much the same as the fact that `struct A { x: u8 }` and `struct B
+{ y: u8 }` are different types, even if they have the same size
+
+<insaneinside> (...except
+`as` works with numeric primitives)
+
+<mson_> yarn: thanks; Mutabah: thanks, that makes
+sense; what's the point to having a thing such as a "pointer sized integer"? Is it
+because pointer sizes differ across platforms?
+
+<yarn> they do
+
+<mson_> roger roger
+
+<Arnavion> mson_: For example the number of elements in a slice is a usize because
+it's a number yet also a difference of a start and end pointer
+
+<yarn> in general
+the archictecture will be able to handle usize/isize in one operation afaik
+
+<mson_>
+Arnavion: ah, that explains why it's a usize here, since I think I am slicing
+
+<yarn>
+so it's handy in that sense
+
+<mson_> So now I'm on to a different issue: What's the
+proper way to get a contiguous subset of a Vec
+<T>, as a Vec<T>? I was trying &myvec[i..(i
++ k)], but this is apparently a [T], and not a Vec
+<T>.
+
+<Arnavion> It's a &[T], yes.
+Why do you want a &Vec
+<T> ? That's almost never a type that you want
+
+<MaulingMonkey2>
+even varies on the "same" platform (e.g. you can run 32-bit and 64-bit programs on
+the same system... generally with correspondingly sized pointers)
+
+<mson_> Arnavion:
+Maybe I don't. I want the analogy to taking substrings, but instead of contiguous
+collections of characters, I want contiguous collections of anythings (well, not
+aaanything, but something quite general). 
+
+<Arnavion> That's exactly what &[T] is
+
+<yarn> see https://doc.rust-lang.org/std/slice/
+
+<mson_> Arnavion: Oh. OK. Then my
+error was being caused by my return type annotation of the overall function. I changed
+it to &[T] and it's good now. thanks! 
+
+<yarn> https://doc.rust-lang.org/std/primitive.slice.html
+
+<yarn> ok, this one actually has the methods you can call on slices
+
+<mson_> :)
+
+<mson_>
+So I'm slicing this Vec, and putting each slice as a key into a hash map. So naturally
+there are lifetime issues. I am googling around and finding things like copy_from_slice
+and clone_from_slice. clone_from_slice seems promising, but also sort of... weird
+with regard to the arguments it takes. I just want to somehow put &myvec[i..(i +
+k)] as a key into an existing Map. Is there an obvious way to do this?
+
+<yarn> i think
+it should work if you get the lifetimes right
+
+<yarn> but i'm really not sure
+
+<insaneinside>
+yarn: the HashMap will have to outlive the source data
+
+<insaneinside> yarn: also
+you can _never_ move the source data (a Vec, was it?) while the HashMap is alive
+
+<Arnavion> The source data will have to outlive the map, you mean
+
+<yarn> if the hashmap
+has to outlive the source data that's an issue
+
+<insaneinside> errr
+
+<Arnavion> as
+in the map's lifetime is smaller
+
+<insaneinside> yarn: the source data has to outlive
+the thing that's borrowing the source data
+
+<Arnavion> Right
+
+<yarn> yes
+
+<yarn> and
+if you get the life times right you can make that happen
+
+<insaneinside> mhm
+
+<mson_>
+What does getting the lifetimes right mean? Is that the dealie with the explicit
+lifetime annotations in the function signature?
+
+<yarn> at least that
+
+<mson_> I also
+put my issue-causing code in a pastebin :) : https://pastebin.com/2NsqT0Nc 
+
+<yarn>
+so this won't work
+
+<yarn> since vals is a Vec<T> it gets moved when it's passed into
+the function
+
+<Arnavion> You're consuming the Vec so you can't store slices of it
+in the hashmap you return
+
+<yarn> and will only live until the function ends
+
+<YungMoonHodler>
+does rustc do tailcall optimization?
+
+<Arnavion> Have the caller give you a &'a [T]
+and return a HashMap
+<&'a [T], ...>
+
+<yarn> or make a struct that has the hashmap and
+vec
+
+<yarn> and return that
+
+<Arnavion> (You'll probably need the explicit lifetime
+since elision will infer the hashmap's lifetime to self)
+
+<yarn> or just a tuple or
+such
+
+<yarn> if you want to make a new vec as the key you probably want https://doc.rust-lang.org/std/vec/struct.Vec.html#method.extend_from_slice
+
+<yarn> but then your key is Vec and that would probably be harder to use for the
+consumer
+
+<mson_> yarn: I think I've been convinced that I want &[T] as the key
+
+<Arnavion>
+https://play.rust-lang.org/?gist=8185e289ca2e973bae808d0b8e9eeb5e&version=stable
+
+<Arnavion> (Note that that approach also doesn't require T to be Clone)
+
+<mson_> Arnavion:
+Thank you!! I've been on the road to a successful compilation for an hour+ and now
+I am there 
+
+<yarn> you still have to make sure vals outlives the returned hashmap
+but that's probably what you want
+
+<mson_> Why is the ampersand first in &'a [T]?
+I'd have thought this was the type &[T] with lifetime 'a. Is that the correct reading
+of &'a [T], or does it mean something else?
+
+<Arnavion> Yes
+
+<yarn> that's correct
+
+<mson_> nice
+
+<yarn> the syntax for lifetimes is at times non obvious
+
+<Arnavion> As
+I said, you need to annotate the lifetime explicitly. Otherwise per elision rules
+the lifetimes in the returned HashMap will be the lifetime of self, not vals
+
+<yarn>
+imo
+
+<Arnavion> (   https://doc.rust-lang.org/nomicon/lifetime-elision.html   Rule
+3)
+
+<mson_> Arnavion: Hm. That sort of makes sense but sort of doesn't. Because self
+will live a long time - as long as the client is interesting in calling functions
+on this struct, self will live, right (because self is the instance of the struct)?
+
+<mson_> *is interested in
+
+<Arnavion> Yes, and you don't want the lifetime of the
+HashMap you return to have any relation to that
+
+<Arnavion> You do want it to be related
+to the lifetime of the slice used to create it
+
+<Arnavion> If you write   fn foo(&self,
+bar: &T) -> &Baz   then lifetime elision rules mean it's treated as if you wrote  
+fn foo
+<'a, 'b>(&'a self, bar: &'b T) -> &'a Baz
+
+<Arnavion> whereas you want the return
+type to be   &'b Baz instead
+
+<Arnavion> Hence the explicit annotation
+
+<yarn> the
+issue isn't that self doesn't live long enough
+
+<yarn> it's that it lives too long
+
+<mson_> Arnavion: ooo, that's a bit clearer
+
+<yarn> since the hashmap contains refrences
+to the contents of vals
+
+<yarn> if the hashmap outlives vals the keys may point to
+junk data
+
+<mson_> Ah!! So from reading that docpage and the above sentence this is
+maybe an obvious yes, but to rephrase: unless I make lifetimes explicit, the returned
+value will always have the same lifetime as self?
+
+<yarn> the life time of a type
+parameter will i think
+
+<mson_> yarn: ahhhh. so vals might go, and when that happens,
+we need hashmap to go. self is sort of beside the point. yes yes yes makes sense
+
+<Arnavion> Exactly
+* 12/29/17
+** how to pastebin rust code
+<insaneinside> mson: please use play.rust-lang.org and use example code that immediately produces the error *you* are seeing, 
+without any distracting warnings.  
+This helps us help _you_ better.  ==> https://play.rust-lang.org/?gist=1cd9e4f251c1901822e2f0adc18d6715&version=stable
+
+** using immutable references and lifetimes vs. just using Copy
+<mson> I'm having an issue where the compiler is telling me that "data" doesn't
+live long enough and should have lifetime 'a. But I thought I specified in the
+function signature that the key in the hashmap (which data is just a reference
+to) does have lifetime 'a. What is the issue here?:
+https://pastebin.com/TXWmY339
+
+<insaneinside> mson: please use
+play.rust-lang.org and use example code that immediately produces the error
+*you* are seeing, without any distracting warnings.  This helps us help _you_
+better.  ==>
+https://play.rust-lang.org/?gist=1cd9e4f251c1901822e2f0adc18d6715&version=stable
+
+<mson> insaneinsane: oh, nice, will do in the future, thanks
+
+<insaneinside>
+mson: okay, I see your problem
+
+<insaneinside> mson: first, try removing the `&`
+in `for (&data, p) in ...`
+
+<insaneinside> mson: this makes your mistake more
+clear in the error message
+
+<robbym> insaneinside: pubsub crate doesn't do what
+you want?
+
+<insaneinside> mson: in `for ITEM in THING`, `ITEM` is parsed as a
+pattern matcher, much like `let THING = EXPRESSION;`
+
+<insaneinside> mson:
+pattern-matching a reference using `&identifier` matches the reference as
+`&identifier`, so the value of `foo` in `let &foo = &2;` is 2. 
+
+<insaneinside>
+mson: i.e. it dereferences the thing being matched before assigning it to that
+identifier
+
+<mson> insaneinside: I had this earlier too; making (&data, ...)
+into (data, ...) now gives an error saying the map itself doesn't live long
+enough. But in my mind the lifetime of the map is a sort of side issue; I
+thought I only cared about the lifetime of the thing I am referencing in the
+map.
+
+<insaneinside> mson: well you're also taking a reference to the `&'a T`
+when you construct that Pair thing with `&data`
+
+<mson> insaneinside: I had this
+earlier too; making (&data, ...) into (data, ...) now gives an error saying the
+map itself doesn't live long enough. But in my mind the lifetime of the map is
+a sort of side issue; I thought I only cared about the lifetime of the thing I
+am referencing in the map.
+
+<mson> Ahhhh. wrong window. sorry.
+ Andi andi_ andor
+andoriyu andrew andrewstwrt andrewtj andrewzah AndyBaum 
+
+<insaneinside> mson, I
+find it confusing that `Drawable
+<T>::new` produces a value of type
+`Drawable
+<&'a T>`
+
+<insaneinside> mson: is that intentional?
+
+<mson> Like. OK. So
+I am constructing this Pair thing and this Drawable thing, and the only
+relevant lifetime for both is 'a. I have also specified that 'a is the lifetime
+for the input HashMap. So while making &data data has changed what the borrow
+checker is complaining about, I still don't see why it's complaining at all.
+
+<mson> insaneinside: well I went a bit off-kilter and started throwing in a
+million lifetimes so mostly no
+
+<insaneinside> mson:
+https://play.rust-lang.org/?gist=b21d751945fcdd32270be72a9d1dfd19&version=stable seems to compile
+
+<insaneinside> notice that I removed your explicit type annotations and
+corrected the mismatched function signature
+
+<insaneinside> mson: maybe it would
+be less confusing (and more flexible) if you just made it `struct Pair
+<T> {
+upper_bound: f32, data: T }`?
+
+<insaneinside> mson: then you could get rid of
+the other type parameters on Drawable and users of the type could still use a
+reference there if they want (substituting some reference type for T)
+
+<mson>
+insaneinside: I had Pair
+<'a, T> because I thought I needed to make sure
+everything referring to that input HashMap key in new() had the same lifetime
+as that input key
+
+<mson> Sounds like there's an easier way and am happily
+removing them now, but then I'm not sure how to make sure the key in the
+HashMap stays alive as long as Pair needs to be alive  
+
+<insaneinside> mson,
+the hashmap dies at the end of `new` because it's passed by value to the
+function
+
+<insaneinside> EVEN in the version I just linked to that compiles
+
+<insaneinside> mson:
+https://play.rust-lang.org/?gist=8a36e1413f71e0a855c5f9315ff07bb1&version=stable
+
+<insaneinside> mson: note that immutable references are Copy, so that'll still
+work
+
+<mson> insaneinside: I'm still catching up: looks like the difference
+between my code and your first major edit (which still had all the lifetime
+annotations) is that you just changed the return type from Drawable
+<&'a T> to
+Drawable
+<'a, T>, right? I'm happy that fixes it but I don't understand why that
+fixes it.
+
+<mson> (oh and changed the let mut distribution line so that also
+counts as changing distribution's type to match the return type) 
+
+<insaneinside> I also removed some of your unnecessary type annotations, yes.
+
+<insaneinside> and changed the way you store `data` in the pair
+
+<insaneinside>
+as for my second version
+
+<insaneinside> mson: Repeat after me: "For any type
+parameter `T`, `&T` is also a type."
+
+<mson> insaneinside: yes! that makes
+sense; I think I knew that
+
+<insaneinside> mson: in other words, you may be
+adding unnecessary complexity to your code if you take a type parameter but
+only ever use it as a reference to that type.
+
+<mson> insaneinside: I thought I
+was using references to values of that type, not references to the type itself
+
+<insaneinside> mson: you are
+
+<insaneinside> mson: but are you *ever* actually
+using (storing) an instance of that type, instead of just a reference?
+
+<mson>
+insaneinside: don't think I was, no
+
+<insaneinside> mson, is there a reason that
+you need to explicitly use references there?
+
+<insaneinside> or is it okay to
+allow the user of this code to add the references as necessary?
+
+<mson>
+insaneinside: hmmm so I guess maybe I was using all those references and type
+annotations to make sure the data lived long enough, but using Copy means I
+don't have to worry about that
+
+<insaneinside> mhm
+
+<mson> insaneinside: if I
+somehow were not allowed to use Copy, was I on the right track?
+
+<insaneinside>
+hrm... I guess so, mson.  But really the reason you'd use references instead of
+values is that immutable references are Copy
+
+<insaneinside> so if you can't use
+Copy you can't use immutable references ;P
+
+<mson> oh.... makes sense
+
+<mson>
+insaneinside: okidoki everything looking good. thanks a lot!

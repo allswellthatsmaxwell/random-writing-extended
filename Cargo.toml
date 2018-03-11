@@ -1,0 +1,9 @@
+[package]
+
+name = "random_writing"
+version = "0.0.1"
+authors = [ "Maxwell <allswellthatsmaxwell9@gmail.com>" ]
+
+[dependencies]
+getopts = "0.2"
+rand = "0.3"
